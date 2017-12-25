@@ -9,13 +9,9 @@ import os
 import numpy as np
 # i = np.random()
 # np.random.seed()
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import argparse
 import chainer
 from chainer import cuda, serializers
-import sys
 import tqdm
 import datetime
 import importlib
@@ -25,18 +21,17 @@ import gc
 from mylib.my_functions import get_batch
 from mylib.my_logger import LOGGER
 
-
 parser = argparse.ArgumentParser()
 
 # model selection
-parser.add_argument("-a", "--am", type=str, default="model_rc",
+parser.add_argument("-a", "--am", type=str, default="model_at",
                     help="attention model")
 # hyper parameters
-parser.add_argument("-b", "--batch_size", type=int, default=50,
-                    help="batch size")
 parser.add_argument("-e", "--epoch", type=int, default=30,
                     help="iterate training given epoch times")
-parser.add_argument("-m", "--num_l", type=int, default=20,
+parser.add_argument("-b", "--batch_size", type=int, default=20,
+                    help="batch size")
+parser.add_argument("-m", "--num_l", type=int, default=30,
                     help="a number of sample ")
 parser.add_argument("-s", "--step", type=int, default=2,
                     help="look step")
@@ -107,9 +102,9 @@ if gpu_id >= 0:
 # log setting
 if file_id == "":
     file_id = datetime.datetime.now().strftime("%m%d%H%M")
-log_dir = log_dir + "log/" +  file_id + "/"
+log_dir = log_dir + "log/" + file_id + "/"
 os.mkdir(log_dir)
-logger = LOOGER(log_dir)
+logger = LOGGER(log_dir, file_id, n_epoch=n_epoch)
 
 logger.l_print("{} class recognition\nclass:{} use {} data set".format(num_class, target_c, model_id))
 logger.l_print("model:{}".format(model_file_name))
@@ -150,10 +145,8 @@ for epoch in range(n_epoch):
 
     # save accuracy
     logger.set_acc(t_acc / test_b, acc / test_b, epoch)
-    logger.l_print("test_acc:{:1.4f} train_acc:{:1.4f}".format(acc1_array[epoch], train_acc[epoch]))
-    logger.update_log()
     logger.save_acc()
-
+    logger.update_log()
     # save model
     if gpu_id >= 0:
         serializers.save_npz(log_dir + "/" + logger.best + file_id + '.model', model.to_cpu())
@@ -161,4 +154,4 @@ for epoch in range(n_epoch):
     else:
         serializers.save_npz(log_dir + "/" + logger.best + file_id + '.model', model)
 
-logger.l_print("last acc:{}  max_acc:{}\n".format(acc1_array[n_epoch - 1], max_acc))
+# logger.l_print("last acc:{}  max_acc:{}\n".format(acc1_array[n_epoch - 1], max_acc))

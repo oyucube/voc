@@ -10,19 +10,19 @@ class ImageDataset(chainer.dataset.DatasetMixin):
         self.path = path
         pairs = []
         n = 20
-        with open('data/label' + file_name + '.txt', 'r') as f:
+        with open('data/label_' + file_name + '.txt', 'r') as f:
             buf = f.read()
         txts = buf.splitlines()
         for txt in txts:
             buf = txt.split()
-            if len(buf) == 11:
-                file_path = buf[0] + ".jpg"
-                label = np.array(20)
+            if len(buf) == 21:
+                file_path = "data/images/" + buf[0] + ".jpg"
+                label = np.zeros(20)
                 for i in range(n):
-                    label[i + 1] = int(buf[i])
+                    label[i] = int(buf[i + 1])
                 pairs.append([file_path, label])
             else:
-                print(len(buf))
+                # print(len(buf))
                 break
         self._pairs = pairs
         self.len = len(self._pairs)
@@ -49,3 +49,15 @@ class ImageDataset(chainer.dataset.DatasetMixin):
         image_array = image_array.transpose(2, 0, 1)  # order of rgb / h / w
         label = np.int32(self._pairs[i][1])
         return image_array, label
+
+    def d_print(self, i, crop=True):
+        filename = self._pairs[i][0]
+        image = Image.open(filename)
+        image = image.convert("RGB")
+        if crop:
+            r = np.random.randint(32, size=3)
+            if r[0] > 15:
+                image = ImageOps.mirror(image)
+            image = image.crop((r[1], r[2], r[1] + 224, r[2] + 224))
+            image = image.resize((256, 256))
+        image.show()

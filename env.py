@@ -1,5 +1,4 @@
 import numpy as np
-
 import socket
 xp = np
 env_test = "cpu"

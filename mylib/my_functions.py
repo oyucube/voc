@@ -1,6 +1,7 @@
 import numpy as np
 import chainer
-from PIL import Image, ImageDraw
+from env import xp
+
 
 def get_batch(ds, index, repeat):
     nt = ds.num_target
