@@ -1,5 +1,3 @@
-from image_dataset import ImageDataset
+from image_dataset import CombDataset
 
-ds = ImageDataset("", "debug")
-ds.d_print(10)
-ds.d_print(13)
+a = CombDataset("", "train")

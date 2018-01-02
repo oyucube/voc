@@ -12,7 +12,7 @@ import numpy as np
 import argparse
 import chainer
 from chainer import cuda, serializers
-import tqdm
+from tqdm import tqdm
 import datetime
 import importlib
 import image_dataset
@@ -50,22 +50,20 @@ parser.add_argument("-p", "--logmode", type=int, default=1,
 args = parser.parse_args()
 
 file_id = args.filename
-model_id = args.id
 num_lm = args.num_l
 n_epoch = args.epoch
-train_id = args.id
-label_file = args.id
 num_step = args.step
 train_b = args.batch_size
 train_var = args.var
 gpu_id = args.gpu
+crop = 1
 
 # naruto ならGPUモード
 if socket.gethostname() == "chainer":
     gpu_id = 0
     log_dir = "/home/y-murata/storage/voc/"
 else:
-    log_dir = ""
+    log_dir = "log/"
 train_dataset = image_dataset.ImageDataset("voc/data/", "train")
 val_dataset = image_dataset.ImageDataset("voc/data/", "val")
 
@@ -73,11 +71,20 @@ xp = cuda.cupy if gpu_id >= 0 else np
 
 data_max = train_dataset.len
 test_max = val_dataset.len
+num_val = 1000
+num_val_loop = 10  # val loop 10 times
+#
+# data_max = 1000
+# test_max = 1000
+# num_val = 100
+# num_val_loop = 1  # val loop 10 times
+
+
 img_size = 256
 n_target = train_dataset.num_target
 num_class = n_target
 target_c = ""
-test_b = test_max
+# test_b = test_max
 
 # モデルの作成
 model_file_name = args.am
@@ -86,9 +93,9 @@ sss = importlib.import_module("modelfile." + model_file_name)
 model = sss.SAF(n_out=n_target, img_size=img_size, var=train_var, n_step=num_step, gpu_id=gpu_id)
 
 # model load
-if len(args.l) != 0:
-    print("load model model/my{}{}.model".format(args.l, model_id))
-    serializers.load_npz('model/my' + args.l + model_id + '.model', model)
+# if len(args.l) != 0:
+#     print("load model model/my{}{}.model".format(args.l, model_id))
+#     serializers.load_npz('model/my' + args.l + model_id + '.model', model)
 
 # オプティマイザの設定
 optimizer = chainer.optimizers.Adam()
@@ -101,15 +108,15 @@ if gpu_id >= 0:
 
 # log setting
 if file_id == "":
-    file_id = datetime.datetime.now().strftime("%m%d%H%M")
-log_dir = log_dir + "log/" + file_id + "/"
+    file_id = datetime.datetime.now().strftime("%m%d%H%M%S")
+log_dir = log_dir + file_id + "/"
 os.mkdir(log_dir)
 logger = LOGGER(log_dir, file_id, n_epoch=n_epoch)
 
-logger.l_print("{} class recognition\nclass:{} use {} data set".format(num_class, target_c, model_id))
+logger.l_print("{} class recognition\nclass:{} use VOC 2012 data set".format(num_class, target_c))
 logger.l_print("model:{}".format(model_file_name))
 logger.l_print("parameter\n")
-logger.l_print("step:{} sample:{} batch_size:{} var:{} crop:{}".format(num_step, num_lm, train_b, train_var, args.crop == 1))
+logger.l_print("step:{} sample:{} batch_size:{} var:{} crop:{}".format(num_step, num_lm, train_b, train_var, crop))
 logger.l_print("log dir:{}".format(log_dir))
 logger.l_print("going to train {} epoch".format(n_epoch))
 logger.update_log()
@@ -130,21 +137,19 @@ for epoch in range(n_epoch):
         gc.collect()
 
     # evaluate
-    acc = 0
-    t_acc = 0
-    perm = np.random.permutation(test_max)
-    perm2 = np.random.permutation(data_max) 
-    for i in range(0, test_b, 100):
+    train_map = 0
+    val_map = 0
+    perm_train = np.random.permutation(data_max)
+    perm_val = np.random.permutation(test_max)
+    for i in range(0, num_val, int(num_val / num_val_loop)):
         with chainer.function.no_backprop_mode(), chainer.using_config('train', False):
-            x, t = get_batch(val_dataset, perm[i:i + 100], 1)
-            acc += model(x, t, mode=0)
-            x, t = get_batch(train_dataset, perm[i:i + 100], 1)
-            t_acc += model(x, t, mode=0)
-    del x, t
-    gc.collect()
+            x, t = get_batch(val_dataset, perm_val[i:i + 100], 1)
+            train_map += model.mean_average_perception(x, t)
+            x, t = get_batch(train_dataset, perm_train[i:i + 100], 1)
+            val_map += model.mean_average_perception(x, t)
 
     # save accuracy
-    logger.set_acc(t_acc / test_b, acc / test_b, epoch)
+    logger.set_acc(train_map / num_val_loop, val_map / num_val_loop, epoch)
     logger.save_acc()
     logger.update_log()
     # save model

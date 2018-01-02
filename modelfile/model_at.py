@@ -14,6 +14,8 @@ from chainer import Variable
 import make_sampled_image
 from env import xp
 from modelfile.bnlstm import BNLSTM
+from sklearn.metrics import average_precision_score, label_ranking_average_precision_score
+import warnings
 
 
 class BASE(chainer.Chain):
@@ -24,8 +26,8 @@ class BASE(chainer.Chain):
             # 切り取られた画像を処理する部分　位置情報 (glimpse loc)と画像特徴量の積を出力
             glimpse_cnn_1=L.Convolution2D(3, 32, 4),  # in 20 out 16
             glimpse_cnn_2=L.Convolution2D(32, 64, 4),  # in 16 out 12
-            glimpse_cnn_3=L.Convolution2D(64, 128, 4),  # in 12 out 8
-            glimpse_full=L.Linear(4 * 4 * 128, n_units),
+            glimpse_cnn_3=L.Convolution2D(64, 64, 4),  # in 12 out 8
+            glimpse_full=L.Linear(4 * 4 * 64, n_units),
             glimpse_loc=L.Linear(3, n_units),
 
             # baseline network 強化学習の期待値を学習し、バイアスbとする
@@ -33,25 +35,25 @@ class BASE(chainer.Chain):
 
             l_norm_c1=L.BatchNormalization(32),
             l_norm_c2=L.BatchNormalization(64),
-            l_norm_c3=L.BatchNormalization(128),
+            l_norm_c3=L.BatchNormalization(64),
 
             # 記憶を用いるLSTM部分
-            rnn_1=BNLSTM(n_units, n_units),
-            rnn_2=BNLSTM(n_units, n_units),
+            rnn_1=L.LSTM(n_units, n_units),
+            rnn_2=L.LSTM(n_units, n_units),
 
             # 注意領域を選択するネットワーク
             attention_loc=L.Linear(n_units, 2),
             attention_scale=L.Linear(n_units, 1),
 
             # 入力画像を処理するネットワーク
-            context_cnn_1=L.Convolution2D(3, 32, 3),  # 64 to 62
-            context_cnn_2=L.Convolution2D(32, 64, 4),  # 31 to 28
-            context_cnn_3=L.Convolution2D(64, 64, 3),  # 14 to 12
-            context_full=L.Linear(12 * 12 * 64, n_units),
+            context_cnn_1=L.Convolution2D(3, 16, 3),  # 64 to 62
+            context_cnn_2=L.Convolution2D(16, 16, 4),  # 31 to 28
+            context_cnn_3=L.Convolution2D(16, 16, 3),  # 14 to 12
+            context_full=L.Linear(12 * 12 * 16, n_units),
 
-            l_norm_cc1=L.BatchNormalization(32),
-            l_norm_cc2=L.BatchNormalization(64),
-            l_norm_cc3=L.BatchNormalization(64),
+            l_norm_cc1=L.BatchNormalization(16),
+            l_norm_cc2=L.BatchNormalization(16),
+            l_norm_cc3=L.BatchNormalization(16),
 
             class_full=L.Linear(n_units, n_out)
         )
@@ -124,12 +126,34 @@ class BASE(chainer.Chain):
                 l = l1
                 s = s1
 
+    def mean_average_perception(self, x, t):
+        self.reset()
+        n_step = self.n_step
+        num_lm = x.data.shape[0]
+        l, s, b1 = self.first_forward(x, num_lm)
+        for i in range(n_step):
+            if i + 1 == n_step:
+                xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
+                l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
+                if self.use_gpu:
+                    y.to_cpu()
+                    t.to_cpu()
+                print(y)
+                return label_ranking_average_precision_score(t.data, y.data)
+
+            else:
+                xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
+                l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
+            l = l1
+            s = s1
+
     def use_model(self, x, t):
         self.reset()
         num_lm = x.data.shape[0]
         n_step = self.n_step
         s_list = xp.empty((n_step, num_lm, 1))
         l_list = xp.empty((n_step, num_lm, 2))
+        ap = xp.empty(num_lm)
         l, s, b1 = self.first_forward(x, num_lm)
         for i in range(n_step):
             if i + 1 == n_step:
@@ -137,9 +161,12 @@ class BASE(chainer.Chain):
                 l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
                 s_list[i] = s1.data
                 l_list[i] = l1.data
-                accuracy = y.data * t.data
+                bt = t.data
+                by = y.data
+                for j in range(num_lm):
+                    ap[j] = label_ranking_average_precision_score(bt[j:j+1], by[j:j+1])
                 s_list = xp.power(10, s_list - 1)
-                return xp.sum(accuracy, axis=1), l_list, s_list
+                return y.data, ap, l_list, s_list
             else:
                 xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
                 l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
@@ -192,9 +219,9 @@ class BASE(chainer.Chain):
         # size
         size_p = (sm - s) * (sm - s) / self.vars + ln_p
 
-        accuracy = y * target
+        accuracy = (y - target) * (y - target)
 
-        loss = -F.sum(accuracy)
+        loss = F.sum(accuracy)
         return loss, size_p
 
     def make_img(self, x, l, s, num_lm, random=0):
