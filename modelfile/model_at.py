@@ -14,8 +14,6 @@ from chainer import Variable
 import make_sampled_image
 from env import xp
 from modelfile.bnlstm import BNLSTM
-from sklearn.metrics import average_precision_score, label_ranking_average_precision_score
-import warnings
 
 
 class BASE(chainer.Chain):
@@ -24,18 +22,26 @@ class BASE(chainer.Chain):
             # the size of the inputs to each layer will be inferred
             # glimpse network
             # 切り取られた画像を処理する部分　位置情報 (glimpse loc)と画像特徴量の積を出力
-            glimpse_cnn_1=L.Convolution2D(3, 32, 4),  # in 20 out 16
-            glimpse_cnn_2=L.Convolution2D(32, 64, 4),  # in 16 out 12
-            glimpse_cnn_3=L.Convolution2D(64, 64, 4),  # in 12 out 8
-            glimpse_full=L.Linear(4 * 4 * 64, n_units),
-            glimpse_loc=L.Linear(3, n_units),
+            cnn_1_1=L.Convolution2D(3, 64, 3, pad=1),  # in 32 out 16
+            cnn_1_2=L.Convolution2D(64, 64, 3, pad=1),  # in 32 out 16
+            cnn_2_1=L.Convolution2D(64, 128, 3, pad=1),  # in 16 out 12
+            cnn_2_2=L.Convolution2D(128, 128, 3, pad=1),  # in 16 out 12
+            cnn_3_1=L.Convolution2D(128, 256, 3, pad=1),  # in 12 out 8
+            cnn_3_2=L.Convolution2D(256, 256, 3, pad=1),  # in 12 out 8
+            cnn_3_3=L.Convolution2D(256, 256, 3, pad=1),  # in 12 out 8
+            full_1=L.Linear(None, 256),
+            # full_2=L.Linear(None, 10),
 
-            # baseline network 強化学習の期待値を学習し、バイアスbとする
-            baseline=L.Linear(n_units, 1),
+            glimpse_loc=L.Linear(3, 256),
 
-            l_norm_c1=L.BatchNormalization(32),
-            l_norm_c2=L.BatchNormalization(64),
-            l_norm_c3=L.BatchNormalization(64),
+            norm_1_1=L.BatchNormalization(64),
+            norm_1_2=L.BatchNormalization(64),
+            norm_2_1=L.BatchNormalization(128),
+            norm_2_2=L.BatchNormalization(128),
+            norm_3_1=L.BatchNormalization(256),
+            norm_3_2=L.BatchNormalization(256),
+            norm_3_3=L.BatchNormalization(256),
+            norm_f1=L.BatchNormalization(256),
 
             # 記憶を用いるLSTM部分
             rnn_1=L.LSTM(n_units, n_units),
@@ -46,14 +52,17 @@ class BASE(chainer.Chain):
             attention_scale=L.Linear(n_units, 1),
 
             # 入力画像を処理するネットワーク
-            context_cnn_1=L.Convolution2D(3, 16, 3),  # 64 to 62
-            context_cnn_2=L.Convolution2D(16, 16, 4),  # 31 to 28
-            context_cnn_3=L.Convolution2D(16, 16, 3),  # 14 to 12
-            context_full=L.Linear(12 * 12 * 16, n_units),
+            context_cnn_1=L.Convolution2D(3, 64, 3),  # 64 to 62
+            context_cnn_2=L.Convolution2D(64, 64, 4),  # 31 to 28
+            context_cnn_3=L.Convolution2D(64, 128, 3),  # 14 to 12
+            context_full=L.Linear(12 * 12 * 128, n_units),
 
-            l_norm_cc1=L.BatchNormalization(16),
-            l_norm_cc2=L.BatchNormalization(16),
-            l_norm_cc3=L.BatchNormalization(16),
+            l_norm_cc1=L.BatchNormalization(64),
+            l_norm_cc2=L.BatchNormalization(64),
+            l_norm_cc3=L.BatchNormalization(128),
+
+            # baseline network 強化学習の期待値を学習し、バイアスbとする
+            baseline=L.Linear(n_units, 1),
 
             class_full=L.Linear(n_units, n_out)
         )
@@ -80,11 +89,11 @@ class BASE(chainer.Chain):
         self.rnn_1.reset_state()
         self.rnn_2.reset_state()
 
-    def __call__(self, x, target, mode):
+    def __call__(self, x, target):
         self.reset()
         n_step = self.n_step
-        num_lm = x.data.shape[0]
-        if mode == 1:
+        num_lm = x.shape[0]
+        if chainer.config.train:
             r_buf = 0
             l, s, b = self.first_forward(x, num_lm)
             for i in range(n_step):
@@ -95,7 +104,7 @@ class BASE(chainer.Chain):
                     loss, size_p = self.cul_loss(y, target, l, s, lm, sm)
                     r_buf += size_p
                     r = xp.where(
-                        xp.argmax(y.data, axis=1) == xp.argmax(target.data, axis=1), 1, 0).reshape((num_lm, 1)).astype(
+                        xp.argmax(y.data, axis=1) == xp.argmax(target, axis=1), 1, 0).reshape((num_lm, 1)).astype(
                         xp.float32)
 
                     loss += F.sum((r - b) * (r - b))
@@ -112,40 +121,21 @@ class BASE(chainer.Chain):
                 s = s1
                 b = b1
 
-        elif mode == 0:
+        else:
             l, s, b1 = self.first_forward(x, num_lm)
             for i in range(n_step):
                 if i + 1 == n_step:
                     xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
                     l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
-                    accuracy = y.data * target.data
-                    return xp.sum(accuracy)
+                    accuracy = xp.sum(y.data * target)
+                    if self.use_gpu:
+                        accuracy = chainer.cuda.to_cpu(accuracy)
+                    return accuracy
                 else:
                     xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
                     l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
                 l = l1
                 s = s1
-
-    def mean_average_perception(self, x, t):
-        self.reset()
-        n_step = self.n_step
-        num_lm = x.data.shape[0]
-        l, s, b1 = self.first_forward(x, num_lm)
-        for i in range(n_step):
-            if i + 1 == n_step:
-                xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
-                l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
-                if self.use_gpu:
-                    y.to_cpu()
-                    t.to_cpu()
-                print(y)
-                return label_ranking_average_precision_score(t.data, y.data)
-
-            else:
-                xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
-                l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
-            l = l1
-            s = s1
 
     def use_model(self, x, t):
         self.reset()
@@ -153,7 +143,6 @@ class BASE(chainer.Chain):
         n_step = self.n_step
         s_list = xp.empty((n_step, num_lm, 1))
         l_list = xp.empty((n_step, num_lm, 2))
-        ap = xp.empty(num_lm)
         l, s, b1 = self.first_forward(x, num_lm)
         for i in range(n_step):
             if i + 1 == n_step:
@@ -161,12 +150,9 @@ class BASE(chainer.Chain):
                 l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
                 s_list[i] = s1.data
                 l_list[i] = l1.data
-                bt = t.data
-                by = y.data
-                for j in range(num_lm):
-                    ap[j] = label_ranking_average_precision_score(bt[j:j+1], by[j:j+1])
+                accuracy = y.data * t.data
                 s_list = xp.power(10, s_list - 1)
-                return y.data, ap, l_list, s_list
+                return xp.sum(accuracy, axis=1), l_list, s_list
             else:
                 xm, lm, sm = self.make_img(x, l, s, num_lm, random=0)
                 l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
@@ -193,19 +179,39 @@ class BASE(chainer.Chain):
         ls = xp.concatenate([lm.data, sm.data], axis=1)
         hgl = F.relu(self.glimpse_loc(Variable(ls)))
 
-        hg1 = F.relu(self.l_norm_c1(self.glimpse_cnn_1(Variable(xm))))
-        hg2 = F.relu(self.l_norm_c2(self.glimpse_cnn_2(hg1)))
-        hg3 = F.relu(self.l_norm_c3(self.glimpse_cnn_3(F.max_pooling_2d(hg2, 2, stride=2))))
-        hgf = F.relu(self.glimpse_full(hg3))
+        h = self.glimpse_forward(xm)
+        hr1 = F.relu(self.rnn_1(hgl * h))
 
-        hr1 = F.relu(self.rnn_1(hgl * hgf))
-        # ベクトルの積
         hr2 = F.relu(self.rnn_2(hr1))
         l = F.sigmoid(self.attention_loc(hr2))
         s = F.sigmoid(self.attention_scale(hr2))
-        y = F.sigmoid(self.class_full(hr1))
+        y = F.softmax(self.class_full(hr1))
         b = F.sigmoid(self.baseline(Variable(hr2.data)))
         return l, s, y, b
+
+    def glimpse_forward(self, x):
+        h = F.relu(self.norm_1_1(self.cnn_1_1(x)))
+        h = F.relu(self.norm_1_2(F.max_pooling_2d(self.cnn_1_2(h), 2, stride=2)))
+        h = F.relu(self.norm_2_1(self.cnn_2_1(h)))
+        h = F.relu(self.norm_2_2(F.max_pooling_2d(self.cnn_2_2(h), 2, stride=2)))
+        h = F.relu(self.norm_3_1(self.cnn_3_1(h)))
+        h = F.relu(self.norm_3_2(self.cnn_3_2(h)))
+        h = F.relu(self.norm_3_3(F.max_pooling_2d(self.cnn_3_3(h), 2, stride=2)))
+        h = F.relu(self.norm_f1(self.full_1(h)))
+        return h
+
+    def cifar10(self, x, target):
+        h = self.glimpse_forward(x)
+        y = self.full_2(h)
+        if chainer.config.train:
+            loss = F.softmax_cross_entropy(y, target)
+            return loss
+        else:
+            y = F.softmax(y)
+            index = xp.array(range(y.data.shape[0]))
+            acc = y.data[index, target]
+            acc = chainer.cuda.to_cpu(acc)
+            return acc.sum()
 
     # loss 関数を計算
 
@@ -219,9 +225,9 @@ class BASE(chainer.Chain):
         # size
         size_p = (sm - s) * (sm - s) / self.vars + ln_p
 
-        accuracy = (y - target) * (y - target)
+        accuracy = y * target
 
-        loss = F.sum(accuracy)
+        loss = -F.sum(accuracy)
         return loss, size_p
 
     def make_img(self, x, l, s, num_lm, random=0):
@@ -236,12 +242,11 @@ class BASE(chainer.Chain):
             sm = Variable(sm)
             lm = Variable(lm.astype(xp.float32))
         if self.use_gpu:
-            xm = make_sampled_image.generate_xm_rgb_gpu(lm.data, sm.data, x.data, num_lm, g_size=self.gsize)
+            xm = make_sampled_image.generate_xm_rgb_gpu(lm.data, sm.data, x, num_lm, g_size=self.gsize)
         else:
-            xm = make_sampled_image.generate_xm_rgb(lm.data, sm.data, x.data, num_lm, g_size=self.gsize)
+            xm = make_sampled_image.generate_xm_rgb(lm.data, sm.data, x, num_lm, g_size=self.gsize)
         return xm, lm, sm
 
 
 class SAF(BASE):
     pass
-

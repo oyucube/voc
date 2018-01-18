@@ -68,6 +68,34 @@ class ImageDataset(chainer.dataset.DatasetMixin):
         image.show()
 
 
+class PersonDataset(ImageDataset):
+    def __init__(self, path, file_name):
+        self.path = path
+        pairs = []
+        num_p = 0
+        with open('data/label_' + file_name + '.txt', 'r') as f:
+            buf = f.read()
+        txts = buf.splitlines()
+        for txt in txts:
+            buf = txt.split()
+            if len(buf) == 21:
+                file_path = "data/images/" + buf[0] + ".jpg"
+                label = np.zeros(2)  # 2class
+                if int(buf[14 + 1]) == 1:
+                    num_p += 1
+                    label[1] = 1
+                else:
+                    label[0] = 1
+                pairs.append([file_path, label])
+            else:
+                # print(len(buf))
+                break
+        print(num_p)
+        self._pairs = pairs
+        self.len = len(self._pairs)
+        self.num_target = 2
+
+
 class CombDataset(ImageDataset):
     def __init__(self, path, file_name):
         self.path = path

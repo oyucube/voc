@@ -17,13 +17,9 @@ from chainer import cuda, serializers
 import importlib
 import image_dataset
 import socket
-from mylib.my_functions import get_batch, draw_attention, label_id_to_str
+from mylib.my_functions import get_batch, draw_attention
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from PIL import Image, ImageDraw, ImageFont
-
-
 
 
 #  引数分解
@@ -35,7 +31,7 @@ parser.add_argument("-a", "--am", type=str, default="model_at",
                     help="attention model")
 parser.add_argument("-l", "--l", type=str, default="test1",
                     help="load model name")
-test_b = 10
+test_b = 20
 num_step = 2
 
 # * **************************************************************************************************************** * #
@@ -74,14 +70,14 @@ if socket.gethostname() == "chainer":
     log_dir = "/home/y-murata/storage/voc/"
 else:
     log_dir = "log/"
-train_dataset = image_dataset.ImageDataset("voc/data/", "train")
-val_dataset = image_dataset.ImageDataset("voc/data/", "val")
+train_dataset = image_dataset.PersonDataset("voc/data/", "train")
+val_dataset = image_dataset.PersonDataset("voc/data/", "val")
 
 xp = cuda.cupy if gpu_id >= 0 else np
 
 data_max = train_dataset.len
 test_max = val_dataset.len
-num_val = 1000
+num_val = 100
 num_val_loop = 10  # val loop 10 times
 #
 # data_max = 1000
@@ -129,34 +125,23 @@ if gpu_id >= 0:
 perm = np.random.permutation(test_max)
 with chainer.function.no_backprop_mode(), chainer.using_config('train', False):
     x, t = get_batch(val_dataset, perm[0:test_b], 1)
-    y, ap, l_list, s_list = model.use_model(x, t)
+    acc, l_list, s_list = model.use_model(x, t)
 
-print("ap")
-print(ap)
-print("l_list")
-print(l_list)
+# print("acc")
+# print(acc)
+# print("l_list")
+# print(l_list)
 print("s_list")
-print(s_list)
+# print(s_list)
 for i in range(test_b):
     save_filename = "buf/attention" + str(i)
     # print(acc[i])
     img = val_dataset.get_image(perm[i])
-    acc_str = ("AP:{:1.8f}".format(ap[i]))
-    print(acc_str)
-    bt = t.data[i]
-    targets = np.where(bt == 1)[0]
-    top5 = y[i].argsort()[::-1][:5]
-    print(type(targets))
-    print("top5:{} target:{}\n\n".format(top5, targets))
-    # print(l_list)
-    txt = []
-    txt.append(acc_str)
-    txt.append("top5 class      score")
-    for j in range(5):
-        txt.append(label_id_to_str(top5[j]) + "      {:1.3f}".format(y[i][top5[j]]))
-    txt.append("target_class:")
-    t_buf = ""
-    for ttt in targets:
-        t_buf += label_id_to_str(ttt) + " "
-    txt.append(t_buf)
-    draw_attention(img, l_list, s_list, i, save=save_filename, txt_buf=txt)
+    acc_str = ("{:1.8f}".format(acc[i]))
+    # print(acc_str)
+    # print(l_list[0][i])
+    # print(l_list[1][i])
+    # print(s_list[0][i])
+    draw_attention(img, l_list, s_list, i, save=save_filename, acc=acc_str[0:6])
+print("average of acc")
+print(np.mean(acc))

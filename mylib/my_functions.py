@@ -6,6 +6,33 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+
+def copy_model(src, dst):
+    assert isinstance(src, link.Chain)
+    assert isinstance(dst, link.Chain)
+    for child in src.children():
+        if child.name not in dst.__dict__: continue
+        dst_child = dst[child.name]
+        if type(child) != type(dst_child): continue
+        if isinstance(child, link.Chain):
+            copy_model(child, dst_child)
+        if isinstance(child, link.Link):
+            match = True
+            for a, b in zip(child.namedparams(), dst_child.namedparams()):
+                if a[0] != b[0]:
+                    match = False
+                    break
+                if a[1].data.shape != b[1].data.shape:
+                    match = False
+                    break
+            if not match:
+                print('Ignore {} because of parameter mismatch'.format(child.name))
+                continue
+            for a, b in zip(child.namedparams(), dst_child.namedparams()):
+                b[1].data = a[1].data
+            print ('Copy {}' .format(child.name))
+
+
 def get_batch(ds, index, repeat):
     nt = ds.num_target
     # print(index)
@@ -22,42 +49,64 @@ def get_batch(ds, index, repeat):
     return return_x, return_t
 
 
-def draw_attention(d_img, d_l_list, d_s_list, index, save="", txt_buf=[]):
+def draw_attention(d_img, d_l_list, d_s_list, index, save="", acc=""):
     draw = ImageDraw.Draw(d_img)
     color_list = ["red", "yellow", "blue", "green"]
     size = 256
     for j in range(d_l_list.shape[0]):
         l = d_l_list[j][index]
         s = d_s_list[j][index]
-        print(l)
+        # print(l)
         p1 = (size * (l - s / 2))
         p2 = (size * (l + s / 2))
         p1[0] = size - p1[0]
         p2[0] = size - p2[0]
-        print([p1[0], p1[1], p2[0], p2[1]])
-        draw.rectangle([p1[0], p1[1], p2[0], p2[1]], outline=color_list[j])
-    # if len(acc) > 0:
-    #     font = ImageFont.truetype("C:\\Windows\\Fonts\\msgothic.ttc", 20)
-    #     draw.text([120, 230], acc, font=font, fill="red")
+        # print([p1[0], p1[1], p2[0], p2[1]])
+        draw.rectangle([p1[1], p1[0], p2[1], p2[0]], outline=color_list[j])
+    if len(acc) > 0:
+        font = ImageFont.truetype("C:\\Windows\\Fonts\\msgothic.ttc", 20)
+        draw.text([120, 230], acc, font=font, fill="red")
     if len(save) > 0:
-        plt.plot()
-        plt.figure(figsize=(8, 4))
-        plt.subplot(1, 2, 1)
-        plt.imshow(d_img)
-        plt.tick_params(labelbottom="off", bottom="off")  # x軸の削除
-        plt.tick_params(labelleft="off", left="off")  # y軸の削除
+        d_img.save(save + ".png")
 
-        plt.subplot(1, 2, 2)
-        i = 0
-        for b in txt_buf:
-            i += 1
-            plt.text(0.05, 1 - i * 0.1, b, fontsize=12)
 
-        plt.tick_params(labelbottom="off", bottom="off")  # x軸の削除
-        plt.tick_params(labelleft="off", left="off")  # y軸の削除
-        plt.savefig(save + ".png")
-        plt.close("all")
-#         d_img.save(save + ".png")
+#
+# def draw_attention(d_img, d_l_list, d_s_list, index, save="", txt_buf=[]):
+#     draw = ImageDraw.Draw(d_img)
+#     color_list = ["red", "yellow", "blue", "green"]
+#     size = 256
+#     for j in range(d_l_list.shape[0]):
+#         l = d_l_list[j][index]
+#         s = d_s_list[j][index]
+#         print(l)
+#         p1 = (size * (l - s / 2))
+#         p2 = (size * (l + s / 2))
+#         p1[0] = size - p1[0]
+#         p2[0] = size - p2[0]
+#         print([p1[0], p1[1], p2[0], p2[1]])
+#         draw.rectangle([p1[0], p1[1], p2[0], p2[1]], outline=color_list[j])
+#     # if len(acc) > 0:
+#     #     font = ImageFont.truetype("C:\\Windows\\Fonts\\msgothic.ttc", 20)
+#     #     draw.text([120, 230], acc, font=font, fill="red")
+#     if len(save) > 0:
+#         plt.plot()
+#         plt.figure(figsize=(8, 4))
+#         plt.subplot(1, 2, 1)
+#         plt.imshow(d_img)
+#         plt.tick_params(labelbottom="off", bottom="off")  # x軸の削除
+#         plt.tick_params(labelleft="off", left="off")  # y軸の削除
+#
+#         plt.subplot(1, 2, 2)
+#         i = 0
+#         for b in txt_buf:
+#             i += 1
+#             plt.text(0.05, 1 - i * 0.1, b, fontsize=12)
+#
+#         plt.tick_params(labelbottom="off", bottom="off")  # x軸の削除
+#         plt.tick_params(labelleft="off", left="off")  # y軸の削除
+#         plt.savefig(save + ".png")
+#         plt.close("all")
+# #         d_img.save(save + ".png")
 
 
 def label_id_to_str(label_id):

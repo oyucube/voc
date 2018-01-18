@@ -29,19 +29,11 @@ parser.add_argument("-a", "--am", type=str, default="model_at",
 # hyper parameters
 parser.add_argument("-e", "--epoch", type=int, default=30,
                     help="iterate training given epoch times")
-parser.add_argument("-b", "--batch_size", type=int, default=20,
+parser.add_argument("-b", "--batch_size", type=int, default=128,
                     help="batch size")
-parser.add_argument("-m", "--num_l", type=int, default=30,
-                    help="a number of sample ")
-parser.add_argument("-s", "--step", type=int, default=2,
-                    help="look step")
-parser.add_argument("-v", "--var", type=float, default=0.02,
-                    help="sample variation")
 parser.add_argument("-g", "--gpu", type=int, default=-1,
                     help="use gpu")
 # load model id
-parser.add_argument("-l", "--l", type=str, default="",
-                    help="load model name")
 # log config
 parser.add_argument("-o", "--filename", type=str, default="",
                     help="prefix of output file names")
@@ -49,13 +41,9 @@ parser.add_argument("-p", "--logmode", type=int, default=1,
                     help="log mode")
 args = parser.parse_args()
 
-model_file_name = args.am
 file_id = args.filename
-num_lm = args.num_l
 n_epoch = args.epoch
-num_step = args.step
 train_b = args.batch_size
-train_var = args.var
 gpu_id = args.gpu
 crop = 1
 
@@ -65,43 +53,28 @@ if socket.gethostname() == "chainer":
     log_dir = "/home/y-murata/storage/voc/"
 else:
     log_dir = "log/"
-train_data = image_dataset.PersonDataset("voc/data/", "train")
-val_data = image_dataset.PersonDataset("voc/data/", "val")
+
+(train_data, val_data) = chainer.datasets.get_cifar10()
 
 xp = cuda.cupy if gpu_id >= 0 else np
 
-data_max = train_data.len
-test_max = val_data.len
-num_val = 1000
+data_max = len(train_data)
+test_max = len(val_data)
+num_val = test_max
 num_val_loop = 10  # val loop 10 times
-img_size = 256
-n_target = train_data.num_target
-num_class = n_target
+
+img_size = 32
+n_target = 10
+num_class = 10
 target_c = ""
+# test_b = test_max
 
 # モデルの作成
-mf = importlib.import_module("modelfile." + model_file_name)
-model = mf.SAF(n_out=n_target, img_size=img_size, var=train_var, n_step=num_step, gpu_id=gpu_id)
+model_file_name = args.am
 
-# log setting
-if file_id == "":
-    file_id = datetime.datetime.now().strftime("%m%d%H%M%S")
-log_dir = log_dir + file_id + "/"
-os.mkdir(log_dir)
-logger = LOGGER(log_dir, file_id, n_epoch=n_epoch)
+sss = importlib.import_module("modelfile." + model_file_name)
+model = sss.BASE()
 
-logger.l_print("{} class recognition\nclass:{} use VOC 2012 data set".format(num_class, target_c))
-logger.l_print("model:{}".format(model_file_name))
-logger.l_print("parameter\n")
-logger.l_print("step:{} sample:{} batch_size:{} var:{} crop:{}".format(num_step, num_lm, train_b, train_var, crop))
-logger.l_print("log dir:{}".format(log_dir))
-logger.l_print("going to train {} epoch".format(n_epoch))
-
-# model load
-if len(args.l) != 0:
-    logger.l_print("load model model/{}.model".format(args.l))
-    serializers.load_npz('model/' + args.l + '.model', model)
-logger.update_log()
 
 # オプティマイザの設定
 optimizer = chainer.optimizers.Adam()
@@ -112,36 +85,49 @@ if gpu_id >= 0:
     chainer.cuda.get_device_from_id(gpu_id).use()
     model.to_gpu()
 
+# log setting
+if file_id == "":
+    file_id = datetime.datetime.now().strftime("%m%d%H%M%S")
+log_dir = log_dir + file_id + "/"
+os.mkdir(log_dir)
+logger = LOGGER(log_dir, file_id, n_epoch=n_epoch)
+
+logger.l_print("{} class recognition\nclass:{} use Cifar10 data set".format(num_class, target_c))
+logger.l_print("model:{}".format(model_file_name))
+logger.l_print("parameter\n")
+logger.l_print("batch_size:{} crop:{}".format(train_b, crop))
+logger.l_print("log dir:{}".format(log_dir))
+logger.l_print("going to train {} epoch".format(n_epoch))
+logger.update_log()
+
 val_batch_size = int(num_val / num_val_loop)
 train_iterator = chainer.iterators.SerialIterator(train_data, train_b, shuffle=True)
 e_val_iterator = chainer.iterators.SerialIterator(val_data, val_batch_size, shuffle=True)
 e_train_iterator = chainer.iterators.SerialIterator(train_data, val_batch_size, shuffle=True)
 
-# train
 for epoch in range(n_epoch):
     print("(epoch: {})\n".format(epoch + 1))
     for i in tqdm(range(0, data_max, train_b), ncols=60):
         model.cleargrads()
         with chainer.using_config('train', True):
             x, t = chainer.dataset.concat_examples(train_iterator.next(), device=gpu_id)
-            loss = model(x, t)
-            logger.set_loss(loss.data, epoch)
-            loss.backward()
-            loss.unchain_backward()  # truncate
+            loss = model.cifar10(x, t)
+        logger.set_loss(loss.data, epoch)
+        loss.backward()
         optimizer.update()
-        del x, t, loss
-        gc.collect()
 
     # evaluate
     train_acc = 0
     val_acc = 0
-    for i in range(0, num_val, val_batch_size):
+    for i in range(0, num_val_loop):
         with chainer.function.no_backprop_mode(), chainer.using_config('train', False):
             x, t = chainer.dataset.concat_examples(e_train_iterator.next(), device=gpu_id)
-            train_acc += model(x, t)
+            train_acc += model.cifar10(x, t)
             x, t = chainer.dataset.concat_examples(e_val_iterator.next(), device=gpu_id)
-            val_acc += model(x, t)
-
+            val_acc += model.cifar10(x, t)
+    train_iterator.reset()
+    e_train_iterator.reset()
+    e_val_iterator.reset()
     # save accuracy
     logger.set_acc(train_acc / num_val, val_acc / num_val, epoch)
     logger.save_acc()
