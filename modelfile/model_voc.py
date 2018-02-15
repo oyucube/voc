@@ -22,7 +22,6 @@ class BASE(chainer.Chain):
             # the size of the inputs to each layer will be inferred
             # glimpse network
             # 切り取られた画像を処理する部分　位置情報 (glimpse loc)と画像特徴量の積を出力
-            # in 256 * 256 * 3
             cnn_1_1=L.Convolution2D(3, 64, 3, pad=1),
             cnn_1_2=L.Convolution2D(64, 64, 3, pad=1),
             cnn_2_1=L.Convolution2D(64, 128, 3, pad=1),
@@ -53,18 +52,14 @@ class BASE(chainer.Chain):
             attention_scale=L.Linear(n_units, 1),
 
             # 入力画像を処理するネットワーク
-            context_cnn_1=L.Convolution2D(3, 64, 3, pad=1),
-            context_cnn_2=L.Convolution2D(64, 64, 3, pad=1),
-            context_cnn_3=L.Convolution2D(64, 64, 3, pad=1),
-            context_cnn_4=L.Convolution2D(64, 64, 3, pad=1),
-            context_cnn_5=L.Convolution2D(64, 64, 3, pad=1),
-            context_full=L.Linear(16 * 16 * 64, n_units),
+            context_cnn_1=L.Convolution2D(3, 64, 3),  # 64 to 62
+            context_cnn_2=L.Convolution2D(64, 64, 4),  # 31 to 28
+            context_cnn_3=L.Convolution2D(64, 128, 3),  # 14 to 12
+            context_full=L.Linear(12 * 12 * 128, n_units),
 
             l_norm_cc1=L.BatchNormalization(64),
             l_norm_cc2=L.BatchNormalization(64),
-            l_norm_cc3=L.BatchNormalization(64),
-            l_norm_cc4=L.BatchNormalization(64),
-            l_norm_cc5=L.BatchNormalization(64),
+            l_norm_cc3=L.BatchNormalization(128),
 
             # baseline network 強化学習の期待値を学習し、バイアスbとする
             baseline=L.Linear(n_units, 1),
@@ -88,14 +83,13 @@ class BASE(chainer.Chain):
         self.num_class = n_out
         # r determine the rate of position
         self.r = 0.5
-        self.r_recognize = 1.0
         self.n_step = n_step
 
     def reset(self):
         self.rnn_1.reset_state()
         self.rnn_2.reset_state()
 
-    def __call__(self, x, target):
+    def __call__(self, x, target, mode=0):
         self.reset()
         n_step = self.n_step
         num_lm = x.shape[0]
@@ -112,9 +106,9 @@ class BASE(chainer.Chain):
                     r = xp.where(
                         xp.argmax(y.data, axis=1) == xp.argmax(target, axis=1), 1, 0).reshape((num_lm, 1)).astype(
                         xp.float32)
-                    loss *= self.r_recognize
-                    loss += F.sum((r - b) * (r - b))  # loss baseline
-                    k = self.r * (r - b.data)  # calculate r
+
+                    loss += F.sum((r - b) * (r - b))
+                    k = self.r * (r - b.data)
                     loss += F.sum(k * r_buf)
 
                     return loss / num_lm
@@ -145,7 +139,7 @@ class BASE(chainer.Chain):
 
     def use_model(self, x, t):
         self.reset()
-        num_lm = x.shape[0]
+        num_lm = x.data.shape[0]
         n_step = self.n_step
         s_list = xp.empty((n_step, num_lm, 1))
         l_list = xp.empty((n_step, num_lm, 2))
@@ -156,7 +150,7 @@ class BASE(chainer.Chain):
                 l1, s1, y, b = self.recurrent_forward(xm, lm, sm)
                 s_list[i] = s1.data
                 l_list[i] = l1.data
-                accuracy = y.data * t
+                accuracy = y.data * t.data
                 s_list = xp.power(10, s_list - 1)
                 return xp.sum(accuracy, axis=1), l_list, s_list
             else:
@@ -171,16 +165,14 @@ class BASE(chainer.Chain):
     def first_forward(self, x, num_lm):
         self.rnn_1(Variable(xp.zeros((num_lm, self.n_unit)).astype(xp.float32)))
         h2 = F.relu(self.l_norm_cc1(self.context_cnn_1(F.average_pooling_2d(x, 4, stride=4))))
-        h3 = F.relu(self.l_norm_cc2(self.context_cnn_2(h2)))
+        h3 = F.relu(self.l_norm_cc2(self.context_cnn_2(F.max_pooling_2d(h2, 2, stride=2))))
         h4 = F.relu(self.l_norm_cc3(self.context_cnn_3(F.max_pooling_2d(h3, 2, stride=2))))
-        h5 = F.relu(self.l_norm_cc4(self.context_cnn_4(h4)))
-        h6 = F.relu(self.l_norm_cc5(self.context_cnn_5(h5)))
-        h7 = F.relu(self.context_full(F.max_pooling_2d(h6, 2, stride=2)))
-        h8 = F.relu(self.rnn_2(h7))
+        h4r = F.relu(self.context_full(h4))
+        h5 = F.relu(self.rnn_2(h4r))
 
-        l = F.sigmoid(self.attention_loc(h8))
-        s = F.sigmoid(self.attention_scale(h8))
-        b = F.sigmoid(self.baseline(Variable(h8.data)))
+        l = F.sigmoid(self.attention_loc(h5))
+        s = F.sigmoid(self.attention_scale(h5))
+        b = F.sigmoid(self.baseline(Variable(h5.data)))
         return l, s, b
 
     def recurrent_forward(self, xm, lm, sm):

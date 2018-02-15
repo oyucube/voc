@@ -68,6 +68,10 @@ class ImageDataset(chainer.dataset.DatasetMixin):
         image.show()
 
 
+class MyDataset(ImageDataset):
+    pass
+
+
 class PersonDataset(ImageDataset):
     def __init__(self, path, file_name):
         self.path = path

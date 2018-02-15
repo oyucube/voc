@@ -5,18 +5,21 @@ from PIL import Image, ImageDraw, ImageFont
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import chainer
 
 
 def copy_model(src, dst):
-    assert isinstance(src, link.Chain)
-    assert isinstance(dst, link.Chain)
+    assert isinstance(src, chainer.Chain)
+    assert isinstance(dst, chainer.Chain)
     for child in src.children():
-        if child.name not in dst.__dict__: continue
+        if child.name not in dst.__dict__:
+            continue
         dst_child = dst[child.name]
-        if type(child) != type(dst_child): continue
-        if isinstance(child, link.Chain):
+        if type(child) != type(dst_child):
+            continue
+        if isinstance(child, chainer.Chain):
             copy_model(child, dst_child)
-        if isinstance(child, link.Link):
+        if isinstance(child, chainer.Link):
             match = True
             for a, b in zip(child.namedparams(), dst_child.namedparams()):
                 if a[0] != b[0]:
@@ -29,8 +32,39 @@ def copy_model(src, dst):
                 print('Ignore {} because of parameter mismatch'.format(child.name))
                 continue
             for a, b in zip(child.namedparams(), dst_child.namedparams()):
+                print('  path {}' .format(a[0]))
                 b[1].data = a[1].data
-            print ('Copy {}' .format(child.name))
+            print('Copy {}' .format(child.name))
+
+
+#
+def add_grad(src, dst):
+    assert isinstance(src, chainer.Chain)
+    assert isinstance(dst, chainer.Chain)
+    for child in src.children():
+        if child.name not in dst.__dict__:
+            continue
+        dst_child = dst[child.name]
+        if type(child) != type(dst_child):
+            continue
+        if isinstance(child, chainer.Chain):
+            copy_model(child, dst_child)
+        if isinstance(child, chainer.Link):
+            match = True
+            for a, b in zip(child.namedparams(), dst_child.namedparams()):
+                if a[0] != b[0]:
+                    match = False
+                    break
+                if a[1].data.shape != b[1].data.shape:
+                    match = False
+                    break
+            if not match:
+                print('Ignore {} because of parameter mismatch'.format(child.name))
+                continue
+            for a, b in zip(child.namedparams(), dst_child.namedparams()):
+                print('  path {}' .format(a[0]))
+                b[1].data += a[1].data
+            print('Copy {}' .format(child.name))
 
 
 def get_batch(ds, index, repeat):
@@ -44,8 +78,8 @@ def get_batch(ds, index, repeat):
         return_t[bi] = ds[index[bi]][1]
     return_x = return_x.reshape(batch_size, 3, 256, 256).astype(np.float32)
     return_t = return_t.astype(np.float32)
-    return_x = chainer.Variable(xp.asarray(xp.tile(return_x, (repeat, 1, 1, 1))))
-    return_t = chainer.Variable(xp.asarray(xp.tile(return_t, (repeat, 1))))
+    return_x = xp.asarray(xp.tile(return_x, (repeat, 1, 1, 1)))
+    return_t = xp.asarray(xp.tile(return_t, (repeat, 1)))
     return return_x, return_t
 
 

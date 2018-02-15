@@ -15,10 +15,10 @@ import argparse
 import chainer
 from chainer import cuda, serializers
 import importlib
-import image_dataset
 import socket
 from mylib.my_functions import get_batch, draw_attention
 import matplotlib
+import importlib
 matplotlib.use('Agg')
 
 
@@ -29,10 +29,13 @@ parser = argparse.ArgumentParser()
 # * *********************************************    config    ***************************************************** * #
 parser.add_argument("-a", "--am", type=str, default="model_at",
                     help="attention model")
-parser.add_argument("-l", "--l", type=str, default="test1",
+# data selection
+parser.add_argument("-d", "--data", type=str, default="common",
+                    help="data")
+parser.add_argument("-l", "--l", type=str, default="stat2",
                     help="load model name")
-test_b = 20
-num_step = 2
+test_b = 100
+num_step = 1
 
 # * **************************************************************************************************************** * #
 
@@ -70,13 +73,15 @@ if socket.gethostname() == "chainer":
     log_dir = "/home/y-murata/storage/voc/"
 else:
     log_dir = "log/"
-train_dataset = image_dataset.PersonDataset("voc/data/", "train")
-val_dataset = image_dataset.PersonDataset("voc/data/", "val")
+# load data
+dl = importlib.import_module("dataset." + args.data)
+# train_data = dl.MyDataset("voc/data/", "train")
+val_data = dl.MyDataset("voc/data/", "val")
 
 xp = cuda.cupy if gpu_id >= 0 else np
 
-data_max = train_dataset.len
-test_max = val_dataset.len
+# data_max = train_data.len
+test_max = len(val_data)
 num_val = 100
 num_val_loop = 10  # val loop 10 times
 #
@@ -87,7 +92,7 @@ num_val_loop = 10  # val loop 10 times
 
 
 img_size = 256
-n_target = train_dataset.num_target
+n_target = val_data.num_target
 num_class = n_target
 target_c = ""
 # test_b = test_max
@@ -103,7 +108,7 @@ model = sss.SAF(n_out=n_target, img_size=img_size, var=train_var, n_step=num_ste
 # model load
 if len(args.l) != 0:
     print("load model model/best{}.model".format(args.l))
-    serializers.load_npz('model/best_' + args.l + '.model', model)
+    serializers.load_npz('model/' + args.l + '.model', model)
 else:
     print("load model!!!")
     exit()
@@ -124,7 +129,7 @@ if gpu_id >= 0:
 
 perm = np.random.permutation(test_max)
 with chainer.function.no_backprop_mode(), chainer.using_config('train', False):
-    x, t = get_batch(val_dataset, perm[0:test_b], 1)
+    x, t = get_batch(val_data, perm[0:test_b], 1)
     acc, l_list, s_list = model.use_model(x, t)
 
 # print("acc")
@@ -136,12 +141,15 @@ print("s_list")
 for i in range(test_b):
     save_filename = "buf/attention" + str(i)
     # print(acc[i])
-    img = val_dataset.get_image(perm[i])
+    img = val_data.get_image(perm[i])
     acc_str = ("{:1.8f}".format(acc[i]))
     # print(acc_str)
     # print(l_list[0][i])
     # print(l_list[1][i])
     # print(s_list[0][i])
-    draw_attention(img, l_list, s_list, i, save=save_filename, acc=acc_str[0:6])
+    draw_attention(img, l_list, s_list, i, save=save_filename, acc=acc_str)
+
+#    draw_attention(img, l_list, s_list, i, save=save_filename, acc=acc_str[0:6])
 print("average of acc")
 print(np.mean(acc))
+

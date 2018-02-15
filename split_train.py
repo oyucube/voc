@@ -52,7 +52,8 @@ parser.add_argument("-q", "--logmode", type=int, default=1,
                     help="log mode")
 parser.add_argument("-p", "--pre", type=str, default="",
                     help="pre train")
-
+parser.add_argument("-n", "--ns", type=int, default=5,
+                    help="number of split ")
 args = parser.parse_args()
 
 model_file_name = args.am
@@ -63,7 +64,11 @@ num_step = args.step
 train_b = args.batch_size
 train_var = args.var
 gpu_id = args.gpu
+batch_split = args.ns
 crop = 1
+if num_lm % batch_split != 0:
+    print("batch split error sample{} split{}".format(num_lm, batch_split))
+    exit()
 
 # naruto ならGPUモード
 if socket.gethostname() == "chainer":
@@ -90,6 +95,7 @@ target_c = ""
 # モデルの作成
 mf = importlib.import_module("modelfile." + model_file_name)
 model = mf.SAF(n_out=n_target, img_size=img_size, var=train_var, n_step=num_step, gpu_id=gpu_id)
+model_2 = mf.SAF(n_out=n_target, img_size=img_size, var=train_var, n_step=num_step, gpu_id=gpu_id)
 
 # pre
 pre_log = ""
@@ -128,7 +134,7 @@ optimizer.setup(model)
 if gpu_id >= 0:
     chainer.cuda.get_device_from_id(gpu_id).use()
     model.to_gpu()
-
+    model_2.to_gpu()
 val_batch_size = int(num_val / num_val_loop)
 train_iterator = chainer.iterators.SerialIterator(train_data, train_b, shuffle=True)
 e_val_iterator = chainer.iterators.SerialIterator(val_data, val_batch_size, shuffle=True)
@@ -141,12 +147,22 @@ for epoch in range(n_epoch):
         model.cleargrads()
         with chainer.using_config('train', True):
             x, t = chainer.dataset.concat_examples(train_iterator.next(), device=gpu_id)
-            x = xp.tile(x, (num_lm, 1, 1, 1))
-            t = xp.tile(t, (num_lm, 1))
+            x = xp.tile(x, (int(num_lm / batch_split), 1, 1, 1))
+            t = xp.tile(t, (int(num_lm / batch_split), 1))
             loss = model(x, t)
-            logger.set_loss(loss.data, epoch)
             loss.backward()
             loss.unchain_backward()  # truncate
+            sum_loss = loss.data
+            model_2.zerograds()
+            for j in range(args.ns - 1):
+                model_2.addgrads(model)
+                model.cleargrads()
+                loss = model(x, t)
+                sum_loss += loss.data
+                loss.backward()
+                loss.unchain_backward()
+            logger.set_loss(sum_loss, epoch)
+            model.addgrads(model_2)
         optimizer.update()
         del x, t, loss
         gc.collect()
