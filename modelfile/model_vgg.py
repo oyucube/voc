@@ -1,3 +1,4 @@
+import chainer
 from modelfile.model_at import BASE
 from chainer import Variable
 from env import xp
@@ -5,6 +6,8 @@ import make_sampled_image
 import chainer.functions as F
 import chainer.links as L
 from modelfile.bnlstm import BNLSTM
+from chainer.links import VGG16Layers
+from mylib.my_functions import np_to_img, img_to_np
 
 
 class SAF(BASE):
@@ -14,16 +17,7 @@ class SAF(BASE):
             # glimpse network
             # 切り取られた画像を処理する部分　位置情報 (glimpse loc)と画像特徴量の積を出力
             # in 256 * 256 * 3
-            cnn_1_1=L.Convolution2D(3, 64, 3, pad=1),
-            cnn_1_2=L.Convolution2D(64, 64, 3, pad=1),
-            cnn_2_1=L.Convolution2D(64, 128, 3, pad=1),
-            cnn_2_2=L.Convolution2D(128, 128, 3, pad=1),
-            cnn_3_1=L.Convolution2D(128, 256, 3, pad=1),
-            cnn_3_2=L.Convolution2D(256, 256, 3, pad=1),
-            cnn_3_3=L.Convolution2D(256, 256, 3, pad=1),
-            full_1=L.Linear(4 * 4 * 256, 256),
-            full_2=L.Linear(256, 10),
-
+            g_full=L.Linear(4096, 256),
             glimpse_loc=L.Linear(3, 256),
 
             norm_1_1=L.BatchNormalization(64),
@@ -58,14 +52,18 @@ class SAF(BASE):
             l_norm_cc5=L.BatchNormalization(64),
 
             # baseline network 強化学習の期待値を学習し、バイアスbとする
-            baseline=L.Linear(n_units, 1)
+            baseline=L.Linear(n_units, 1),
+
+            class_full=L.Linear(n_units, n_out)
         )
 
         #
         # img parameter
         #
+        self.vgg_model = VGG16Layers()
         if gpu_id == 0:
             self.use_gpu = True
+            self.vgg_model.to_gpu()
         else:
             self.use_gpu = False
         self.img_size = img_size
@@ -81,27 +79,14 @@ class SAF(BASE):
         self.n_step = n_step
 
     def glimpse_forward(self, x):
-        self.zerograds()
-        h = F.relu(self.norm_1_1(self.cnn_1_1(x)))
-        h = F.relu(self.norm_1_2(F.max_pooling_2d(self.cnn_1_2(h), 2, stride=2)))
-        h = F.relu(self.norm_2_1(self.cnn_2_1(h)))
-        h = F.relu(self.norm_2_2(F.max_pooling_2d(self.cnn_2_2(h), 2, stride=2)))
-        h = F.relu(self.norm_3_1(self.cnn_3_1(h)))
-        h = F.relu(self.norm_3_2(self.cnn_3_2(h)))
-        h = F.relu(self.norm_3_3(F.max_pooling_2d(self.cnn_3_3(h), 2, stride=2)))
-        h = Variable(h.data)
-        h = F.relu(self.norm_f1(self.full_1(h)))
-        return h
+        if self.use_gpu:
+            x = chainer.cuda.to_cpu(x)
+        img_list = []
+        for i in range(x.shape[0]):
+            img = np_to_img(x[i])
+            img.resize((224, 224))
+            img_list.append(img)
+        with chainer.function.no_backprop_mode(), chainer.using_config('train', False):
+            f = self.vgg_model.extract(img_list, layers=["fc7"])["fc7"]
+        return F.relu(self.g_full(Variable(f.data)))
 
-    def recurrent_forward(self, xm, lm, sm):
-        ls = xp.concatenate([lm.data, sm.data], axis=1)
-        hgl = F.relu(self.glimpse_loc(Variable(ls)))
-
-        h = self.glimpse_forward(xm)
-        hr1 = F.relu(self.rnn_1(hgl * h))
-        hr2 = F.relu(self.rnn_2(hr1))
-        l = F.sigmoid(self.attention_loc(hr2))
-        s = F.sigmoid(self.attention_scale(hr2))
-        y = F.softmax(self.full_2(hgl))
-        b = F.sigmoid(self.baseline(Variable(hr2.data)))
-        return l, s, y, b

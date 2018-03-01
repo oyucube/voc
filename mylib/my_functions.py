@@ -149,3 +149,24 @@ def label_id_to_str(label_id):
                   "horse      ", "motorbike  ", "person     ", "pottedplant", "sheep      ", "sofa       ",
                   "train      ", "tvmonitor  "]
     return label_text[label_id]
+
+
+def np_to_img(array):
+    img = array.transpose(1, 2, 0)
+    pil = Image.fromarray(np.uint8(img * 256))
+    return pil
+
+
+def img_to_np(img):
+    image_array = np.asarray(img)
+    image_array = image_array.astype('float32')
+    image_array = image_array / 255
+    image_array = image_array.transpose(2, 0, 1)  # order of rgb / h / w
+    return image_array
+
+
+def glimpse_vgg(x, l, s):
+    x = np_to_img(x)
+
+    return xm
+

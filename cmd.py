@@ -4,18 +4,29 @@ from modelfile.cifar10 import BASE
 from modelfile.model_at import SAF
 from mylib.my_functions import copy_model
 from chainer import cuda, serializers
-from dataset.black_cifar import MyDataset
+from dataset.common import MyDataset
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 
+# alpha = 64
+# ds = MyDataset("voc/data/", "train")
+#
+# for i in range(10):
+#     img = ds.get_image(i)
+#
+#     img = img.resize((256, 256))
+#     img = img.resize((alpha, alpha))
+#     img.show()
+#
+#
 
 # 画像の表示
-model1 = SAF(n_out=2)
-model2 = SAF(n_out=2)
-
-
-copy_model(model1, model2)
+# model1 = SAF(n_out=2)
+# model2 = SAF(n_out=2)
+#
+#
+# copy_model(model1, model2)
 # ds = MyDataset("voc/data/", "train", debug_limit=10)
 # ds = MyDataset("voc/data/", "val", debug_limit=10)
 #

@@ -27,12 +27,12 @@ parser = argparse.ArgumentParser()
 # load model id
 
 # * *********************************************    config    ***************************************************** * #
-parser.add_argument("-a", "--am", type=str, default="model_at",
+parser.add_argument("-a", "--am", type=str, default="model_vgg",
                     help="attention model")
 # data selection
 parser.add_argument("-d", "--data", type=str, default="common",
                     help="data")
-parser.add_argument("-l", "--l", type=str, default="stat2",
+parser.add_argument("-l", "--l", type=str, default="VGG",
                     help="load model name")
 test_b = 100
 num_step = 1
@@ -115,7 +115,7 @@ else:
 # model load
 # if len(args.l) != 0:
 #     print("load model model/my{}{}.model".format(args.l, model_id))
-#     serializers.load_npz('model/my' + args.l + model_id + '.model', model)
+#     serializers.load_npz('model/my' + args.l + mod el_id + '.model', model)
 
 # オプティマイザの設定
 optimizer = chainer.optimizers.Adam()
