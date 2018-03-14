@@ -1,4 +1,4 @@
-from model_dram import DRAM
+import chainer
 from chainer import Variable
 from env import xp
 import make_sampled_image
@@ -6,9 +6,9 @@ import chainer.functions as F
 import chainer.links as L
 
 
-class SAF(Chainer.chain):
+class SAF(chainer.Chain):
     def __init__(self, n_units=256, n_out=0, img_size=112, var=0.18, n_step=2, gpu_id=-1):
-        super(BASE, self).__init__(
+        super(SAF, self).__init__(
             # the size of the inputs to each layer will be inferred
             # glimpse network
             # 切り取られた画像を処理する部分　位置情報 (glimpse loc)と画像特徴量の積を出力
@@ -134,7 +134,7 @@ class SAF(Chainer.chain):
         self.reset()
         num_lm = x.shape[0]
         n_step = self.n_step
-        s_list = xp.ones((n_step, num_lm, 1)) * (self.gsize / self.img_size)
+        s_list = xp.ones((n_step, num_lm, 1)) * (128 / self.img_size)
         l_list = xp.empty((n_step, num_lm, 2))
         l, b1 = self.first_forward(x, num_lm)
         for i in range(n_step):
@@ -148,8 +148,6 @@ class SAF(Chainer.chain):
                 xm, lm = self.make_img(x, l, num_lm, random=0)
                 l1, y, b = self.recurrent_forward(xm, lm)
             l = l1
-            s = s1
-            s_list[i] = s.data
             l_list[i] = l.data
         return
 
@@ -228,7 +226,7 @@ class SAF(Chainer.chain):
             lm = xp.clip(l.data + eps * xp.sqrt(self.vars), 0, 1)
             lm = Variable(lm.astype(xp.float32))
         if self.use_gpu:
-            xm = make_sampled_image.generate_xm_rgb_gpu(lm.data, sm, x.data, num_lm, g_size=self.gsize)
+            xm = make_sampled_image.generate_xm_rgb_gpu(lm.data, sm, x, num_lm, g_size=self.gsize)
         else:
-            xm = make_sampled_image.generate_xm_rgb(lm.data, sm, x.data, num_lm, g_size=self.gsize)
+            xm = make_sampled_image.generate_xm_rgb(lm.data, sm, x, num_lm, g_size=self.gsize)
         return xm, lm

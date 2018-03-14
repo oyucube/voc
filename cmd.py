@@ -4,10 +4,13 @@ from modelfile.cifar10 import BASE
 from modelfile.model_at import SAF
 from mylib.my_functions import copy_model
 from chainer import cuda, serializers
-from dataset.common import MyDataset
+from dataset.person import MyDataset
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+
+ds = MyDataset("voc/data/", "train")
+ds = MyDataset("voc/data/", "val")
 
 # alpha = 64
 # ds = MyDataset("voc/data/", "train")

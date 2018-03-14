@@ -27,15 +27,15 @@ parser = argparse.ArgumentParser()
 # load model id
 
 # * *********************************************    config    ***************************************************** * #
-parser.add_argument("-a", "--am", type=str, default="model_vgg",
+parser.add_argument("-a", "--am", type=str, default="model_dram_128",
                     help="attention model")
 # data selection
 parser.add_argument("-d", "--data", type=str, default="common",
                     help="data")
-parser.add_argument("-l", "--l", type=str, default="VGG",
+parser.add_argument("-l", "--l", type=str, default="dram128_s2_200",
                     help="load model name")
 test_b = 100
-num_step = 1
+num_step = 2
 
 # * **************************************************************************************************************** * #
 
