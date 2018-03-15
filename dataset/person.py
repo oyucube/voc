@@ -39,7 +39,7 @@ class MyDataset(ImageDataset):
         print(len(pairs))
         self._pairs = pairs
         self.len = len(self._pairs)
-        self.num_target = 6
+        self.num_target = 2
 
     def get_example(self, i):
         filename = self._pairs[i][0]
@@ -64,4 +64,4 @@ class MyDataset(ImageDataset):
         return image_array, label
 
 
-data_name = "VOC 2017 and cifar10 common data "
+data_name = "person data "

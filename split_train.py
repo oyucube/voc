@@ -27,14 +27,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-a", "--am", type=str, default="model_at",
                     help="attention model")
 # data selection
-parser.add_argument("-d", "--data", type=str, default="common",
+parser.add_argument("-d", "--data", type=str, default="person",
                     help="data")
 # hyper parameters
-parser.add_argument("-e", "--epoch", type=int, default=30,
+parser.add_argument("-e", "--epoch", type=int, default=50,
                     help="iterate training given epoch times")
-parser.add_argument("-b", "--batch_size", type=int, default=20,
+parser.add_argument("-b", "--batch_size", type=int, default=30,
                     help="batch size")
-parser.add_argument("-m", "--num_l", type=int, default=30,
+parser.add_argument("-m", "--num_l", type=int, default=100,
                     help="a number of sample ")
 parser.add_argument("-s", "--step", type=int, default=2,
                     help="look step")
@@ -52,7 +52,7 @@ parser.add_argument("-q", "--logmode", type=int, default=1,
                     help="log mode")
 parser.add_argument("-p", "--pre", type=str, default="",
                     help="pre train")
-parser.add_argument("-n", "--ns", type=int, default=5,
+parser.add_argument("-n", "--ns", type=int, default=10,
                     help="number of split ")
 args = parser.parse_args()
 
